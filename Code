@@ -1,0 +1,72 @@
+function createIndemnityBondForNewRow(e) {
+    const sheet = e ? e.source.getActiveSheet() : SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const row = sheet.getRange(sheet.getLastRow(), 1, 1, sheet.getLastColumn()).getValues()[0];
+    const templateId = '1XJX4GzlxbllRFKRMMX-8b5fM3xKXFhkAETogKH2cfbM'; 
+    const docFolderId = '1vjLoWuoSYQZksnULd952mhelWCa7vso0';
+    const pdfFolderId = '1zA0grTCHaaIa27s75RNjei9x0noa1mTz';
+    const participantEmail = row[8]; 
+
+    const now = new Date();
+    const formattedDate = Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+
+    const participantName = row[3];
+    const parentName = row[4];
+    const participantContact = row[5];
+    const parentContact = row[6];
+    const participantAddress = row[7];
+    
+    const participantSignatureId = row[9] ? row[9].match(/[-\w]{25,}/) : null; 
+    const parentSignatureId = row[10] ? row[10].match(/[-\w]{25,}/) : null; 
+
+    const docCopy = DriveApp.getFileById(templateId).makeCopy(`${participantName} - Indemnity Bond`, DriveApp.getFolderById(docFolderId));
+    const doc = DocumentApp.openById(docCopy.getId());
+    const body = doc.getBody();
+    
+    body.replaceText('{{Todays Date}}', formattedDate);
+    body.replaceText('{{Participant’s Full Name}}', participantName);
+    body.replaceText('{{Parent/Guardian’s Full Name}}', parentName);
+    body.replaceText('{{Contact Number \\(Participant\\)}}', participantContact);
+    body.replaceText('{{Contact Number \\(Parent/Guardian\\)}}', parentContact);
+    body.replaceText('{{Participant’s Address}}', participantAddress);
+    body.replaceText('{{Participant’s Email}}', participantEmail);
+
+    const insertSignature = (signatureId, placeholder) => {
+        if (signatureId) {
+            const signatureFile = DriveApp.getFileById(signatureId[0]);
+            const signatureBlob = signatureFile.getBlob().getAs('image/png');
+            const width = 300;
+            const height = 100;
+
+            body.replaceText(placeholder, '<<SignaturePlaceholder>>');
+            const range = body.findText('<<SignaturePlaceholder>>');
+            if (range) {
+                const element = range.getElement();
+                element.asText().setText('');
+                element.getParent().appendInlineImage(signatureBlob).setWidth(width).setHeight(height);
+            }
+        }
+    };
+
+    insertSignature(participantSignatureId, '{{Embed Image, Participant’s Signature, width=200}}');
+    insertSignature(parentSignatureId, '{{Embed Image, Parent/Guardian’s Signature, width=200}}');
+
+    doc.saveAndClose();
+
+    // Convert the document to PDF and save in the specified folder
+    const pdfBlob = DriveApp.getFileById(docCopy.getId()).getAs('application/pdf');
+    const pdfFileName = `${participantName} - Indemnity Bond.pdf`;
+    const pdfFile = DriveApp.createFile(pdfBlob.setName(pdfFileName));
+    
+    const pdfFolder = DriveApp.getFolderById(pdfFolderId);
+    pdfFolder.addFile(pdfFile);
+    DriveApp.getRootFolder().removeFile(pdfFile); 
+
+    // Send the PDF via email using GmailApp with alias
+    GmailApp.sendEmail(participantEmail, `${participantName} - Indemnity Bond`, 
+        `Dear ${participantName},\n\nPlease find attached your Indemnity Bond for the trip.\n\nThank you for completing the indemnity bond for the upcoming Manali trip organized by VacationCraver! We’re thrilled to have you on board for this exciting journey to the mesmerizing Himachal Pradesh.\n\nPlease find attached a copy of the completed indemnity bond, which includes the information you provided. This document confirms your participation and outlines the guidelines and responsibilities for all travelers. Keep a copy of this document with you on the day of the trip and submit it to us.\n\nWe’ll be sending additional trip updates, packing recommendations, and final arrangements as the trip date approaches. If you have any questions or need to update any details, don’t hesitate to reach out.\n\nLooking forward to an unforgettable experience together!\n\nBest regards,\nTeam VacationCraver`, {
+        from: "vacationcraver@gmail.com",
+        attachments: [pdfFile.getAs(MimeType.PDF)]
+    });
+
+    docCopy.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+}
